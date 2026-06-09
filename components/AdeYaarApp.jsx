@@ -1,13 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { MATCHES, getFriend, getMatch, getTeam, ME_ID, fmtCompact } from '@/lib/data';
+import { useState, useEffect, useCallback } from 'react';
+import { MATCHES, getFriend, getMatch, getTeam, ME_ID, fmtCompact, fmtMoney } from '@/lib/data';
+import { LEDGER_TYPES } from '@/lib/ledger';
+import { fetchLedger, appendLedger } from '@/lib/ledgerClient';
 import { AppHeader, TabBar, PlaceBetSheet, Toast } from '@/components';
 import HomeScreen from '@/components/screens/HomeScreen';
 import MatchesScreen from '@/components/screens/MatchesScreen';
 import BracketScreen from '@/components/screens/BracketScreen';
 import LeaderboardScreen from '@/components/screens/LeaderboardScreen';
 import BetsScreen from '@/components/screens/BetsScreen';
+import LedgerScreen from '@/components/screens/LedgerScreen';
 import DesktopApp from '@/components/desktop/DesktopApp';
 
 function getFifaStatus(fifa) {
@@ -44,6 +47,9 @@ export default function AdeYaarApp() {
   const [balance, setBalance]   = useState(getFriend(ME_ID).balance);
   const [fifaData, setFifaData] = useState(null);
   const [isDesktop, setIsDesktop] = useState(false);
+  const [ledger, setLedger]     = useState([]);
+  const [bets, setBets]         = useState([]);
+  const [persisted, setPersisted] = useState(true);
 
   useEffect(() => {
     fetch('/api/fifa/matches')
@@ -51,6 +57,65 @@ export default function AdeYaarApp() {
       .then(setFifaData)
       .catch(() => {});
   }, []);
+
+  // Load the ledger. If nothing exists yet, seed the starting balance as a
+  // "generated" entry so the cash-out math has a baseline to work from.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { entries, persisted: ok } = await fetchLedger(ME_ID);
+      if (cancelled) return;
+      setPersisted(ok);
+      if (entries && entries.length) {
+        setLedger(entries);
+        return;
+      }
+      const seed = getFriend(ME_ID).balance;
+      const { entry, persisted: wrote } = await appendLedger({
+        user: ME_ID, type: LEDGER_TYPES.MINT, amount: seed, note: 'Opening balance',
+      });
+      if (cancelled) return;
+      setPersisted(ok && wrote);
+      setLedger([entry]);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Append a ledger entry locally (optimistic) and persist best-effort.
+  const logLedger = useCallback(async ({ type, amount, ref = null, note = '' }) => {
+    const { entry, persisted: wrote } = await appendLedger({ user: ME_ID, type, amount, ref, note });
+    setLedger(prev => [...prev, entry]);
+    if (!wrote) setPersisted(false);
+  }, []);
+
+  // Generate ("mint") tokens — logged so it can never be hidden at cash-out.
+  const generateTokens = useCallback((amount) => {
+    const amt = Math.max(0, Math.round(Number(amount) || 0));
+    if (!amt) return;
+    setBalance(b => b + amt);
+    logLedger({ type: LEDGER_TYPES.MINT, amount: amt, note: 'Generated tokens' });
+    setToast(`Generated ₹${amt.toLocaleString('en-IN')}`);
+  }, [logLedger]);
+
+  // Settle an open stake. Winning logs the winnings; losing just closes it
+  // (the staked tokens were already spent and don't come back).
+  const settleBet = useCallback((betId, outcome, winAmount) => {
+    setBets(prev => prev.map(b => b.id === betId ? { ...b, status: outcome } : b));
+    const bet = bets.find(b => b.id === betId);
+    if (!bet) return;
+    const match = getMatch(bet.matchId);
+    const team  = bet.pick === 'home' ? getTeam(match.home) :
+                  bet.pick === 'away' ? getTeam(match.away) : null;
+    const pickName = team ? team.name : 'Draw';
+    if (outcome === 'won') {
+      const amt = Math.max(0, Math.round(Number(winAmount) || 0));
+      setBalance(b => b + amt);
+      logLedger({ type: LEDGER_TYPES.WIN, amount: amt, ref: betId, note: `Won on ${pickName}` });
+      setToast(`Won ₹${amt.toLocaleString('en-IN')} on ${pickName}`);
+    } else {
+      setToast(`Marked lost · ${pickName}`);
+    }
+  }, [bets, logLedger]);
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)');
@@ -71,7 +136,23 @@ export default function AdeYaarApp() {
     const match = getMatch(matchId);
     const team  = pick === 'home' ? getTeam(match.home) :
                   pick === 'away' ? getTeam(match.away) : null;
-    setToast(`Bet placed · ₹${amount.toLocaleString('en-IN')} on ${team ? team.name : 'Draw'}`);
+    const pickName = team ? team.name : 'Draw';
+    const betId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'bet_' + Date.now().toString(36);
+    setBets(prev => [...prev, {
+      id: betId, user: ME_ID, matchId, pick, amount,
+      oddsAt: oddsAt || 2, status: 'open',
+    }]);
+    // Log the staked tokens — this is the "spent" side of the ledger.
+    logLedger({ type: LEDGER_TYPES.STAKE, amount, ref: betId, note: `Stake on ${pickName}` });
+    setToast(`Bet placed · ₹${amount.toLocaleString('en-IN')} on ${pickName}`);
+  };
+
+  const ledgerProps = {
+    ledger, bets, balance, persisted,
+    onGenerate: generateTokens,
+    onSettle: settleBet,
   };
 
   if (isDesktop) {
@@ -81,6 +162,7 @@ export default function AdeYaarApp() {
           tab={tab} setTab={setTab}
           balance={balance} openBet={openBet}
           matches={matches}
+          ledgerProps={ledgerProps}
         />
         {betSheet && (
           <PlaceBetSheet
@@ -109,6 +191,7 @@ export default function AdeYaarApp() {
             {tab === 'bracket' && <BracketScreen matches={matches} />}
             {tab === 'leaders' && <LeaderboardScreen balance={balance} />}
             {tab === 'bets'    && <BetsScreen />}
+            {tab === 'ledger'  && <LedgerScreen {...ledgerProps} />}
           </div>
 
           <TabBar active={tab} onChange={setTab} />

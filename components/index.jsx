@@ -40,6 +40,12 @@ export const Icon = {
       <path d="M6 6l12 12M18 6L6 18"/>
     </svg>
   ),
+  ledger: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4h13a2 2 0 012 2v14H6a2 2 0 01-2-2z"/>
+      <path d="M4 4v14M9 8h7M9 12h7"/>
+    </svg>
+  ),
 };
 
 // ── Flag ─────────────────────────────────────────────────────
@@ -98,6 +104,7 @@ export function TabBar({ active, onChange }) {
     { id: 'bracket', label: 'Bracket', icon: Icon.bracket },
     { id: 'leaders', label: 'Leaders', icon: Icon.trophy },
     { id: 'bets',    label: 'My Bets', icon: Icon.receipt },
+    { id: 'ledger',  label: 'Ledger',  icon: Icon.ledger },
   ];
   return (
     <div className="tabbar">

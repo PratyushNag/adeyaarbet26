@@ -6,7 +6,8 @@ import {
   ME_ID, getFriend, getTeam, getMatch,
   fmtMoney, fmtCompact, fmtDay, fmtDate, fmtTimeIST,
 } from '@/lib/data';
-import { Flag, LiveDot } from '@/components';
+import { Flag, LiveDot, Icon } from '@/components';
+import LedgerScreen from '@/components/screens/LedgerScreen';
 
 // ── Desktop icons ─────────────────────────────────────────────
 const DIcon = {
@@ -31,6 +32,7 @@ function DesktopShell({ tab, onNav, balance, children, title, sub, hideSearch })
     { id: 'bracket', label: 'Bracket',   icon: DIcon.bracket },
     { id: 'leaders', label: 'Leaderboard', icon: DIcon.trophy },
     { id: 'bets',    label: 'My Bets',   icon: DIcon.receipt, badge: String(myOpen) },
+    { id: 'ledger',  label: 'Ledger',    icon: Icon.ledger },
   ];
 
   return (
@@ -717,13 +719,14 @@ function DBetsScreen() {
 }
 
 // ── Desktop App (root) ────────────────────────────────────────
-export default function DesktopApp({ tab, setTab, balance, openBet, matches }) {
+export default function DesktopApp({ tab, setTab, balance, openBet, matches, ledgerProps }) {
   const titles = {
     home:    { title: 'Dashboard',    sub: 'FIFA World Cup 2026 · Group stage underway' },
     matches: { title: 'Fixtures',     sub: 'All matches · group stage + knockout' },
     bracket: { title: 'Tournament',   sub: '48 teams · 12 groups · single elimination' },
     leaders: { title: 'Leaderboard',  sub: 'Yaaron group · 8 friends · ₹102,840 pot' },
     bets:    { title: 'My Bets',      sub: 'Your stakes across the tournament' },
+    ledger:  { title: 'Token Ledger', sub: 'Generated · spent · won — settled at cash-out' },
   };
   const t = titles[tab] || titles.home;
 
@@ -738,6 +741,7 @@ export default function DesktopApp({ tab, setTab, balance, openBet, matches }) {
       {tab === 'bracket' && <DBracketScreen matches={matches} />}
       {tab === 'leaders' && <DLeaderboardScreen />}
       {tab === 'bets'    && <DBetsScreen />}
+      {tab === 'ledger'  && <LedgerScreen {...ledgerProps} />}
     </DesktopShell>
   );
 }
